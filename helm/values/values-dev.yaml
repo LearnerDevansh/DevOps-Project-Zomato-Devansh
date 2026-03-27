@@ -1,0 +1,17 @@
+app
+  name: zomato
+
+image:
+  repository: devanshpandey21/zomato
+  tag: latest
+
+service:
+  port: 3000 
+
+replicaCount: 1
+
+ingress:
+  host: zomato.dev.local
+
+
+  

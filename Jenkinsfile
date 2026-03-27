@@ -1,0 +1,136 @@
+def call(Map config = [:]) {
+    pipeline {
+        parameters {
+            choice(
+        name: 'ENV',
+        choices: ['dev', 'stage', 'prod'],
+        description: 'Select deployment environment'
+    )
+        }
+        agent any
+
+        tools {
+            jdk 'jdk17'
+            nodejs 'node23'
+        }
+
+        environment {
+            SCANNER_HOME = tool 'sonar-scanner'
+            IMAGE_NAME = "${env.BUILD_NUMBER}"
+            DOCKER_USER = config.dockerUser ?: 'Devansh21'
+            IMAGE_TAG = "${env.BUILD_NUMBER}"
+        }
+
+        stages {
+            stage('Clean Workspace') {
+                steps {
+                    cleanWs()
+                }
+            }
+
+            stage('Prepare Environment') {
+                steps {
+                    script {
+                        env.NAMESPACE = "${env.IMAGE_NAME}-${params.ENV}"
+                        echo "Namespace: ${env.NAMESPACE}"
+                    }
+                }
+            }
+
+            stage('Checkout') {
+                steps {
+                    checkout scm
+                }
+            }
+
+            stage('SonarQube Analysis') {
+                steps {
+                    withSonarQubeEnv('sonar-server') {
+                        sh """
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectName=zomato \
+                        -Dsonar.projectKey=zomato
+                        """
+                    }
+                }
+            }
+
+            stage('Quality Gate') {
+                steps {
+                    waitForQualityGate abortPipeline: True,
+                    credentialsId: 'Sonar-token'
+                }
+            }
+
+            stage('Install Dependencies') {
+                steps {
+                    sh 'npm install'
+                }
+            }
+
+            stage('OWASP Scan') {
+                steps {
+                    dependencyCheck additionalArguments:
+                    '--scan ./ --disableYarnAudit --disableNodeAudit -n',
+                    odcInstallation: 'DP-Check'
+
+                    dependencyCheckPublisher
+                    pattern: '**/dependency-check-report.xml'
+                }
+            }
+
+            stage('Trivy Scan') {
+                steps {
+                    sh 'trivy fs . > trivy.txt'
+                }
+            }
+
+            stage('Build Docker Image') {
+                steps {
+                    sh 'trivy fs --exit-code 1 --severity HIGH,CRITICAL .'
+                }
+            }
+
+            stage('Push Docker Image') {
+                steps {
+                    withDockerRegistry(credentialsId: 'docker') {
+                        sh """
+                        docker tag ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
+                        """
+                    }
+                }
+            }
+
+            stage('Deploy with Helm') {
+                steps {
+                    script {
+                        def port = params.ENV == 'prod' ? 80 :
+                        params.ENV == 'stage' ? 4000 : 3000
+
+                        withKubeConfig(credentialsId: 'kubeconfig') {
+                            sh """
+                            helm upgrade --install ${IMAGE_NAME} ./helm \
+                            --namespace ${params.ENV} \
+                            --create-namespace \
+                            --set image.repository=${DOCKER_USER}/${IMAGE_NAME} \
+                            --set image.tag=${IMAGE_TAG} \
+                            --set service.port=${port}
+                          """
+                        }
+                    }
+                }
+            }
+        }
+
+        post {
+            success {
+                echo '✅ Deployment Successful'
+            }
+            failure {
+                echo '❌ Deployment Failed'
+            }
+        }
+    }
+}
+
