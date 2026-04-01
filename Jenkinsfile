@@ -28,6 +28,14 @@ def call(Map config = [:]) {
                 }
             }
 
+            stage('Init Config') {
+                steps {
+                    script {
+                        env.DOCKER_USER = config.dockerUser ?: 'Devansh21'
+                    }
+                }
+            }
+
             stage('Prepare Environment') {
                 steps {
                     script {
@@ -74,8 +82,10 @@ def call(Map config = [:]) {
                     '--scan ./ --disableYarnAudit --disableNodeAudit -n',
                     odcInstallation: 'DP-Check'
 
-                    dependencyCheckPublisher
-                    pattern: '**/dependency-check-report.xml'
+                    dependencyCheck(
+                        additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit -n',
+                        odcInstallation: 'DP-Check'
+                    )
                 }
             }
 
@@ -93,7 +103,8 @@ def call(Map config = [:]) {
 
             stage('Push Docker Image') {
                 steps {
-                    withDockerRegistry(credentialsId: 'docker') {
+                    withDockerRegistry(credentialsId: 'docker',
+                    url: 'https://index.docker.io/v1/') {
                         sh """
                         docker tag ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
