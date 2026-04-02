@@ -22,6 +22,16 @@ def call(Map config = [:]) {
         }
 
         stages {
+            stage('Pipeline Mode') {
+                steps {
+                    script {
+                        env.PIPELINE_TYPE =
+                env.JOB_NAME.contains('cd') ? 'CD' : 'CI'
+
+                        echo "Running ${env.PIPELINE_TYPE} pipeline"
+                    }
+                }
+            }
             stage('Clean Workspace') {
                 steps {
                     cleanWs()
@@ -52,6 +62,9 @@ def call(Map config = [:]) {
             }
 
             stage('SonarQube Analysis') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     withSonarQubeEnv('sonar-server') {
                         sh """
@@ -64,6 +77,9 @@ def call(Map config = [:]) {
             }
 
             stage('Quality Gate') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     waitForQualityGate abortPipeline: True,
                     credentialsId: 'Sonar-token'
@@ -71,12 +87,18 @@ def call(Map config = [:]) {
             }
 
             stage('Install Dependencies') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     sh 'npm install'
                 }
             }
 
             stage('OWASP Scan') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     dependencyCheck additionalArguments:
                     '--scan ./ --disableYarnAudit --disableNodeAudit -n',
@@ -90,18 +112,27 @@ def call(Map config = [:]) {
             }
 
             stage('Trivy Scan') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     sh 'trivy fs . > trivy.txt'
                 }
             }
 
             stage('Build Docker Image') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     sh 'trivy fs --exit-code 1 --severity HIGH,CRITICAL .'
                 }
             }
 
             stage('Push Docker Image') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CI' }
+                }
                 steps {
                     withDockerRegistry(credentialsId: 'docker',
                     url: 'https://index.docker.io/v1/') {
@@ -114,6 +145,9 @@ def call(Map config = [:]) {
             }
 
             stage('Deploy with Helm') {
+                when {
+                    expression { env.PIPELINE_TYPE == 'CD' }
+                }
                 steps {
                     script {
                         def port = params.ENV == 'prod' ? 80 :
