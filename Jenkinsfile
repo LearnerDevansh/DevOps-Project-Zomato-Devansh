@@ -17,7 +17,7 @@ def call(Map config = [:]) {
         environment {
             SCANNER_HOME = tool 'sonar-scanner'
             IMAGE_NAME = "${env.BUILD_NUMBER}"
-            DOCKER_USER = "Devansh21"
+            DOCKER_USER = 'Devansh21'
             IMAGE_TAG = "${env.BUILD_NUMBER}"
         }
 
